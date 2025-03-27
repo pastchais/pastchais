@@ -1,0 +1,93 @@
+import org.junit.Test;
+
+import org.bouncycastle.crypto.generators.SCrypt;
+import org.bouncycastle.util.encoders.Hex;
+import java.security.SecureRandom;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.Base64;
+import java.util.UUID;
+
+/**
+ * @author tsdmidoli@gmail.com
+ */
+public class GenerateSerialNumberTest {
+    private static final DateTimeFormatter FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    /**
+     * 生成序列号
+     *
+     * @return 生成序列号，如果发生异常则返回空字符串
+     */
+    public String generateSecureSerialNumber() {
+        try {
+            // 拼接派生密钥，时间戳，盐值生成最终的密钥
+            String timestamp = LocalDateTime.now().format(FORMATTER);
+            byte[] salt = UUID.randomUUID().toString().getBytes();
+            String combinedString = Arrays.toString(salt) + timestamp;
+            byte[] key = SCrypt.generate(combinedString.getBytes(), salt, 16384, 8, 1, 32);
+            return Hex.toHexString(key) + "|" + timestamp + "|" + Base64.getEncoder().encodeToString(salt);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return "";
+        }
+    }
+
+    /**
+     * 验证序列号的有效性
+     *
+     * @param serialNumber 要验证的序列号
+     * @return 如果序列号有效则返回true，否则返回false
+     */
+    public boolean validateSerialNumber(String serialNumber) {
+        try {
+            // 将序列号按"|"分割成字符串数组
+            String[] parts = serialNumber.split("\\|");
+            // 如果字符串数组的长度不为3，则说明序列号格式不正确，返回false
+            if (parts.length != 3) {
+                return false;
+            }
+            // 从字符串数组中提取派生密钥的十六进制表示、时间戳和Base64编码的salt
+            String keyHex = parts[0];
+            String timestamp = parts[1];
+            byte[] salt = Base64.getDecoder().decode(parts[2]);
+            // 重新计算派生密钥，并将其转换为十六进制字符串
+            String validateKey = Hex.toHexString(SCrypt.generate((Arrays.toString(salt) + timestamp).getBytes(), salt, 16384, 8, 1, 32));
+            // 比较密钥，并检查序列号是否过期
+            return keyHex.equals(validateKey) && !isExpired(timestamp);
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    /**
+     * 检查序列号是否已过期
+     *
+     * @param timestamp 序列号的时间戳
+     * @return 如果序列号已过期则返回true，否则返回false
+     */
+    private boolean isExpired(String timestamp) {
+        // 将时间戳字符串解析为LocalDateTime对象
+        LocalDateTime issueTime = LocalDateTime.parse(timestamp, FORMATTER);
+        // 计算序列号的过期时间（3个月后）
+        LocalDateTime expiryTime = issueTime.plusMonths(3);
+        // 比较当前时间和过期时间，如果当前时间在过期时间之后，则说明序列号已过期，返回true
+        return LocalDateTime.now().isAfter(expiryTime);
+    }
+
+    /**
+     * 测试生成和验证序列号的功能
+     */
+    @Test
+    public void generator() {
+        // 生成序列号
+        String secureSerialNumber = generateSecureSerialNumber();
+        // 如果序列号不为空，则打印序列号和验证结果
+        if (!secureSerialNumber.isEmpty()) {
+            System.out.println("序列号: " + secureSerialNumber);
+            System.out.println("---------------------------------------------------");
+            System.out.println("验证结果: " + validateSerialNumber(secureSerialNumber));
+        }
+    }
+}
